@@ -8,3 +8,5 @@ opencv-python
 soundfile
 scikit-metrics
 tqdm
+sagemaker
+openai-whisper
