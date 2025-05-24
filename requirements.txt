@@ -6,3 +6,5 @@ pandas
 numpy
 opencv-python
 soundfile
+scikit-metrics
+tqdm
