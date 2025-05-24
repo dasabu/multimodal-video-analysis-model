@@ -152,6 +152,55 @@ class MultimodalModel(nn.Module):
             'sentiments': sentiment_output
         }
 
+# Resolve imbalance in the dataset
+def compute_class_weights(dataset):
+    emotion_counts = torch.zeros(7)
+    sentiment_counts = torch.zeros(3)
+    skipped = 0
+    total = len(dataset)
+
+    for i in range(total):
+        sample= dataset[i]
+        if sample is None:
+            skipped += 1
+            continue
+
+        emotion_labels = sample['emotion_labels']
+        sentiment_labels = sample['sentiment_labels']
+
+        emotion_counts[emotion_labels] += 1
+        sentiment_counts[sentiment_labels] += 1
+
+    valid = total - skipped
+    print(f'Skipped samples: {skipped}/{total}')
+
+    print('\nClass distribution:')
+    print('Emotions:')
+    emotion_map = {
+        0: 'anger', 1: 'disgust', 2: 'fear', 3: 'joy', 4: 'neutral', 5: 'sadness', 6: 'surprise'
+    }
+
+    for i, count in enumerate(emotion_counts):
+        print(f'- {emotion_map[i]}: {count/valid:,.2f}')
+
+    print('\nSentiments:')
+    sentiment_map = {
+        0: 'negative', 1: 'neutral', 2: 'positive'
+    }
+
+    for i, count in enumerate(sentiment_counts):
+        print(f'- {sentiment_map[i]}: {count/valid:,.2f}')
+
+    # Calculate class weights
+    emotion_weights = 1.0 / emotion_counts
+    sentiment_weights = 1.0 / sentiment_counts
+
+    # Normalize weights
+    emotion_weights = emotion_weights / emotion_weights.sum()
+    sentiment_weights = sentiment_weights / sentiment_weights.sum()
+
+    return emotion_weights, sentiment_weights
+
 class MultimodalTrainer:
     def __init__(self, model, train_loader, val_loader):
         self.model = model
@@ -192,10 +241,26 @@ class MultimodalTrainer:
             patience=2,
         )
 
+        # Calculate class weights
+        print('Calculating class weights...')
+        emotion_weights, sentiment_weights = compute_class_weights(self.train_loader.dataset)
+        device = next(self.model.parameters()).device
+        self.emotion_weights = emotion_weights.to(device)
+        self.sentiment_weights = sentiment_weights.to(device)
+
+        print(f'Emotion weights on device: {self.emotion_weights.device}')
+        print(f'Sentiment weights on device: {self.sentiment_weights.device}')
+
         # label_smoothing: add small value to the true label to make it less confident to avoid overfitting
         # [0, 1, 0] -> [0.05, 0.9, 0.05]
-        self.emotion_criterion = nn.CrossEntropyLoss(label_smoothing=0.05)
-        self.sentiment_criterion = nn.CrossEntropyLoss(label_smoothing=0.05)
+        self.emotion_criterion = nn.CrossEntropyLoss(
+            label_smoothing=0.05,
+            weight=self.emotion_weights
+        )
+        self.sentiment_criterion = nn.CrossEntropyLoss(
+            label_smoothing=0.05,
+            weight=self.sentiment_weights
+        )
 
         self.current_train_losses = None # for log_metrics
     
